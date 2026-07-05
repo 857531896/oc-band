@@ -1,4 +1,4 @@
-# Tlen Vela 快应用 - 项目文档
+# OC手环助手 - Vela 快应用 - 项目文档
 
 ## 项目概述
 - 项目名称：com.opencode.bandcontrol

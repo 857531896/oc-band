@@ -1,7 +1,7 @@
 {
-  "name": "tlen-band",
+  "name": "oc-band",
   "version": "1.2.0",
-  "description": "Tlen助手 - 小米手环 AI 对话客户端",
+  "description": "OC手环助手 - 小米手环 AI 对话客户端",
   "scripts": {
     "build": "aiot build",
     "release": "aiot release",
