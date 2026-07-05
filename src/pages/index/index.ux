@@ -1,0 +1,1206 @@
+<import name="input-method" src="../../components/InputMethod/InputMethod.ux"></import>
+<template>
+  <div class="page" @swipe="handleSwipe" @touchstart="handleTouchStart" @touchend="handleTouchEnd">
+
+    <div class="status-bar">
+      <div class="signal">
+        <div class="{{connectionStatus === 'OK' ? 'sig sig-on' : 'sig sig-off'}}"></div>
+        <div class="{{connectionStatus === 'OK' ? 'sig sig-on' : 'sig sig-off'}}" style="height:7px;"></div>
+        <div class="{{connectionStatus === 'OK' ? 'sig sig-on' : 'sig sig-off'}}" style="height:10px;"></div>
+        <div class="{{connectionStatus === 'OK' ? 'sig sig-on' : 'sig sig-off'}}" style="height:13px;"></div>
+      </div>
+      <image src="/images/ghost.png" class="app-icon" @click="goToSettings"></image>
+      <div class="batt">
+        <div class="batt-body">
+          <div class="batt-fill" style="width: {{batteryLevel}};"></div>
+        </div>
+        <div class="batt-tip"></div>
+      </div>
+    </div>
+
+    <div class="session-bar">
+      <text class="nav-btn" @click="prevSession">‹</text>
+      <div class="session-card" @click="refreshData">
+        <text class="session-title" style="font-size: {{fs}}px;">{{ shortTitle }}</text>
+      </div>
+      <text class="nav-btn" @click="nextSession">›</text>
+    </div>
+
+    <div class="msg-card">
+      <text class="{{isThinking ? 'msg-text msg-thinking' : 'msg-text'}}" style="font-size: {{fsMsg}}px;">{{ latestMessage }}</text>
+      <text class="msg-done" if="{{ showDoneTip }}">✓ 回复完成</text>
+    </div>
+
+    <div class="perm-card" if="{{ currentPermission }}">
+      <text class="perm-title">权限请求</text>
+      <text class="perm-desc">{{ currentPermission.description }}</text>
+      <div class="perm-row">
+        <text class="perm-btn perm-allow" @click="respondPermission('once')">允许</text>
+        <text class="perm-btn perm-always" @click="respondPermission('always')">始终</text>
+        <text class="perm-btn perm-deny" @click="respondPermission('reject')">拒绝</text>
+      </div>
+    </div>
+
+    <list class="session-list">
+      <list-item type="s" class="session-item" for="{{ sessions }}" @click="selectSession($item)">
+        <text class="session-item-title" style="font-size: {{fs}}px;">{{ $item.title }}</text>
+      </list-item>
+    </list>
+
+    <div class="action-bar">
+      <div class="{{btnPressed === 'voice' ? 'act act-active' : 'act'}}" @click="startVoiceInput">
+        <div class="mic">
+          <div class="mic-head"></div>
+          <div class="mic-stand"></div>
+        </div>
+      </div>
+      <div class="{{btnPressed === 'continue' ? 'act act-active' : 'act'}}" @click="onBtnClick('continue', '继续')">
+        <text class="act-text" style="font-size: {{fsBtn}}px;">继续</text>
+      </div>
+      <div class="{{btnPressed === 'wrong' ? 'act act-active' : 'act'}}" @click="onBtnClick('wrong', '不对')">
+        <text class="act-text" style="font-size: {{fsBtn}}px;">不对</text>
+      </div>
+      <div class="{{btnPressed === 'keyboard' ? 'act act-active' : 'act'}}" @click="showKeyboard">
+        <text class="act-text" style="font-size: {{fsBtn}}px;">键盘</text>
+      </div>
+    </div>
+
+    <input-method hide="{{ !showKeyboardPanel }}" keyboardtype="QWERTY" screentype="rect" @complete="onInputComplete" @delete="onInputDelete"></input-method>
+
+    <div class="kb-bar" if="{{ showKeyboardPanel }}">
+      <text class="kb-close" @click="hideKeyboard">✕</text>
+      <text class="kb-preview">{{ keyboardInput || '输入内容' }}</text>
+      <text class="kb-send" @click="sendKeyboardInput">发送</text>
+    </div>
+  </div>
+</template>
+
+<script>
+import fetch from '@app-module/system.fetch';
+import battery from '@app-module/system.battery';
+import storage from '@app-module/system.storage';
+import router from '@app-module/system.router';
+import vibrator from '@app-module/system.vibrator';
+import brightness from '@app-module/system.brightness';
+
+const DEFAULT_SERVER_HOST = '100.87.23.38';
+const SERVER_PORT = '4096';
+const STATS_PORT = '4097';
+
+export default {
+  data: {
+    currentTime: '',
+    sessions: [],
+    sessionCount: 0,
+    debug: '初始化...',
+    currentPermission: null,
+    currentOptions: [],
+    currentMessage: '',
+    selectedSession: null,
+    latestMessage: '(无)',
+    isThinking: false,
+    showDoneTip: false,
+    btnPressed: '',
+    showKeyboardPanel: false,
+    keyboardInput: '',
+    batteryLevel: '--',
+    batteryIcon: '',
+    connectionStatus: '?',
+    fontSize: 'medium',
+    stats: {
+      todayTokens: 0,
+      totalTokens: 0,
+      totalChats: 0
+    },
+    serverUrl: '',
+    statsUrl: ''
+  },
+
+  computed: {
+    serverBase() {
+      return this.serverUrl || ('http://' + DEFAULT_SERVER_HOST + ':' + SERVER_PORT);
+    },
+    statsBase() {
+      return this.statsUrl || ('http://' + DEFAULT_SERVER_HOST + ':' + STATS_PORT);
+    },
+    fs() {
+      if (this.fontSize === 'small') return 28;
+      if (this.fontSize === 'large') return 48;
+      return 36;
+    },
+    fsMsg() {
+      if (this.fontSize === 'small') return 30;
+      if (this.fontSize === 'large') return 45;
+      return 33;
+    },
+    fsBtn() {
+      if (this.fontSize === 'small') return 26;
+      if (this.fontSize === 'large') return 40;
+      return 32;
+    },
+    shortTitle() {
+      if (!this.selectedSession) return '无会话';
+      var t = this.selectedSession.title || '';
+      var maxLen = 7;
+      if (this.fontSize === 'small') maxLen = 5;
+      else if (this.fontSize === 'large') maxLen = 4;
+      else maxLen = 5;
+      if (t.length > maxLen) return t.substring(0, maxLen) + '...';
+      return t;
+    }
+  },
+
+  onShow() {
+    this.loadSettings();
+    this.loadFontSize();
+    this.loadSessions();
+    this.loadStats();
+  },
+
+  onReady() {
+    this.loadSettings();
+    this.updateTime();
+    this.loadSessions();
+
+    try {
+      battery.getBattery({
+        success: (data) => {
+          if (data && data.level !== undefined) {
+            this.batteryLevel = data.level + '%';
+            if (data.level >= 50) {
+              this.batteryIcon = 'BAT:';
+            } else {
+              this.batteryIcon = 'LOW:';
+            }
+          } else {
+            this.batteryLevel = '--';
+            this.batteryIcon = '';
+          }
+        },
+        fail: () => {
+          this.batteryLevel = '--';
+          this.batteryIcon = '';
+        }
+      });
+    } catch (e) {
+      this.batteryLevel = '--';
+      this.batteryIcon = '';
+    }
+
+    this.checkConnection();
+    setInterval(() => {
+      this.checkConnection();
+    }, 10000);
+    setInterval(() => {
+      if (this.isThinking && this.selectedSession) {
+        this.fetchLatestMessage(this.selectedSession.id);
+      }
+    }, 3000);
+    this.loadStats();
+  },
+
+  loadSettings() {
+    var that = this;
+    storage.get({
+      key: 'serverHost',
+      success: function(host) {
+        that.serverUrl = 'http://' + (host || DEFAULT_SERVER_HOST) + ':' + SERVER_PORT;
+        that.statsUrl = 'http://' + (host || DEFAULT_SERVER_HOST) + ':' + STATS_PORT;
+      },
+      fail: function() {
+        that.serverUrl = 'http://' + DEFAULT_SERVER_HOST + ':' + SERVER_PORT;
+        that.statsUrl = 'http://' + DEFAULT_SERVER_HOST + ':' + STATS_PORT;
+      }
+    });
+  },
+
+  loadFontSize() {
+    var that = this;
+    storage.get({
+      key: 'fontSize',
+      success: function(data) {
+        that.fontSize = data || 'medium';
+      },
+      fail: function() {
+        that.fontSize = 'medium';
+      }
+    });
+  },
+
+  goToSettings() {
+    router.push({ uri: 'pages/settings' });
+  },
+
+  handleSwipe(e) {
+    if (this.showKeyboardPanel) return;
+    if (e.direction === 'left') {
+      router.push({ uri: 'pages/stats' });
+    } else if (e.direction === 'right') {
+      this.exitApp();
+    }
+  },
+
+  handleTouchStart(e) {
+    this._touchStartX = e.touches[0].clientX;
+    this._touchStartY = e.touches[0].clientY;
+  },
+
+  handleTouchEnd(e) {
+    if (this.showKeyboardPanel) {
+      this._touchStartX = null;
+      return;
+    }
+    if (!this._touchStartX) return;
+
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const diffX = endX - this._touchStartX;
+    const diffY = Math.abs(endY - this._touchStartY);
+
+    if (Math.abs(diffX) > 50 && diffY < 30) {
+      if (diffX < 0) {
+        router.push({ uri: 'pages/stats' });
+      } else {
+        this.exitApp();
+      }
+    }
+    this._touchStartX = null;
+  },
+
+  goToStats() {
+    router.push({ uri: 'pages/stats' });
+  },
+
+  exitApp() {
+    try {
+      router.back();
+    } catch (e) {
+      try {
+        import('@app-module/system.app').then(app => {
+          app.terminate();
+        });
+      } catch (e2) {
+        this.debug = '无法退出';
+      }
+    }
+  },
+
+  toggleStats() {
+    router.push({ uri: 'pages/stats' });
+  },
+
+  loadStats() {
+    fetch.fetch({
+      url: this.statsBase + '/stats',
+      method: 'GET',
+      success: (data) => {
+        let json = data.data;
+        if (typeof json === 'string') {
+          try {
+            json = JSON.parse(json);
+          } catch (e) {
+            return;
+          }
+        }
+        if (json && json.conversation) {
+          this.stats.totalTokens = json.conversation.totalTokens || 0;
+          this.stats.todayTokens = json.conversation.todayTokens || 0;
+          this.stats.totalChats = json.conversation.requestCount || 0;
+        }
+      },
+      fail: () => {}
+    });
+  },
+
+  checkConnection() {
+    fetch.fetch({
+      url: this.serverBase + '/session',
+      method: 'HEAD',
+      timeout: 3000,
+      success: () => {
+        this.connectionStatus = 'OK';
+      },
+      fail: () => {
+        this.connectionStatus = 'OFF';
+      }
+    });
+  },
+
+  refreshData() {
+    this.debug = '刷新中...';
+    this.latestMessage = '刷新中...';
+    const url = this.serverBase + '/session';
+    fetch.fetch({
+      url: url,
+      method: 'GET',
+      success: (data) => {
+        this.latestMessage = '收到数据';
+        let json = data.data;
+        if (!json) {
+          this.latestMessage = '无数据';
+          return;
+        }
+        if (typeof json === 'string') {
+          try {
+            json = JSON.parse(json);
+          } catch (e) {
+            this.latestMessage = '解析错误';
+            return;
+          }
+        }
+        if (!Array.isArray(json) && json.data) json = json.data;
+        if (!Array.isArray(json) || json.length === 0) {
+          this.latestMessage = '无会话';
+          return;
+        }
+        this.sessions = json;
+        this.sessionCount = json.length;
+        if (json.length > 0 && !this.selectedSession) {
+          this.selectedSession = json[0];
+        }
+        if (this.selectedSession) {
+          this.fetchLatestMessage(this.selectedSession.id);
+        }
+      },
+      fail: () => {
+        this.latestMessage = '请求失败';
+      }
+    });
+  },
+
+  updateTime() {
+    const now = new Date();
+    this.currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+  },
+
+  loadSessions() {
+    const url = this.serverBase + '/session';
+    fetch.fetch({
+      url: url,
+      method: 'GET',
+      success: (data) => {
+        let json = data.data;
+        if (!json) {
+          this.latestMessage = '无数据';
+          return;
+        }
+        if (typeof json === 'string') {
+          try {
+            json = JSON.parse(json);
+          } catch (e) {
+            this.debug = '解析失败';
+            this.latestMessage = '解析失败';
+            return;
+          }
+        }
+        if (!Array.isArray(json)) {
+          if (json.data && Array.isArray(json.data)) {
+            json = json.data;
+          } else if (json.length !== undefined) {
+            const arr = [];
+            for (let i = 0; i < json.length; i++) {
+              if (json[i]) arr.push(json[i]);
+            }
+            json = arr;
+          }
+        }
+        if (!Array.isArray(json) || json.length === 0) {
+          this.debug = '无会话';
+          this.latestMessage = '无会话';
+          return;
+        }
+        this.sessions = json;
+        this.sessionCount = json.length;
+
+        if (json.length > 0) {
+          const currentId = this.selectedSession ? this.selectedSession.id : '';
+          let found = false;
+          for (let i = 0; i < json.length; i++) {
+            if (json[i].id === currentId) {
+              found = true;
+              break;
+            }
+          }
+          if (!found || currentId !== json[0].id) {
+            this.selectedSession = json[0];
+            this.debug = '切换到: ' + json[0].title;
+          }
+          this.fetchLatestMessage(this.selectedSession.id);
+          const estimatedTokens = 1500 * json.length;
+          this.stats.totalChats = json.length;
+          this.stats.totalTokens = estimatedTokens;
+          this.stats.todayTokens = Math.floor(estimatedTokens / 7);
+        }
+      },
+      fail: () => {
+        this.debug = '请求失败';
+        this.latestMessage = '请求失败';
+      }
+    });
+  },
+
+  fetchLatestMessage(sessionId) {
+    if (!sessionId) return;
+    fetch.fetch({
+      url: this.serverBase + '/session/' + sessionId + '/message?limit=1',
+      method: 'GET',
+      success: (data) => {
+        let json = data.data;
+        if (typeof json === 'string') {
+          try { json = JSON.parse(json); } catch (e) { return; }
+        }
+        if (this.selectedSession && this.selectedSession.id === sessionId) {
+          if (Array.isArray(json) && json.length > 0) {
+            const msg = json[0];
+            const info = msg.info || {};
+            const time = info.time || {};
+            let text = '';
+            if (msg.parts && Array.isArray(msg.parts)) {
+              for (let i = 0; i < msg.parts.length; i++) {
+                const part = msg.parts[i];
+                if (part.type === 'text' && part.text) {
+                  text = text + part.text;
+                }
+              }
+            }
+            if (!time.completed) {
+              if (text && text.length > 0) {
+                this.latestMessage = '思考中: ' + text;
+              } else {
+                this.latestMessage = '正在思考中...';
+              }
+              this.isThinking = true;
+              return;
+            }
+            const wasThinking = this.isThinking;
+            this.isThinking = false;
+            if (wasThinking) {
+              this.showDoneTip = true;
+              setTimeout(() => { this.showDoneTip = false; }, 3000);
+              vibrator.vibrate({ mode: 'short' }).catch(() => {});
+              brightness.setKeepScreenOn({ keepScreenOn: true, success: () => {
+                setTimeout(() => { brightness.setKeepScreenOn({ keepScreenOn: false }).catch(() => {}); }, 5000);
+              }}).catch(() => {});
+            }
+            this.latestMessage = text.trim() || '(空)';
+          } else {
+            this.latestMessage = '(无消息)';
+          }
+        }
+      },
+      fail: () => {
+        this.latestMessage = '(获取失败)';
+      }
+    });
+  },
+
+  activatePoll() {
+    this._poll.count = 0;
+    this.debug = '激活轮询';
+    if (this._pollIntervalId) clearTimeout(this._pollIntervalId);
+    const runPoll = () => {
+      this._poll.count++;
+      this.debug = '轮询#' + this._poll.count;
+      this.loadSessions();
+      this._pollIntervalId = setTimeout(runPoll, this._poll.interval);
+    };
+    this._pollIntervalId = setTimeout(runPoll, this._poll.interval);
+  },
+
+  selectSession(session) {
+    this.selectedSession = session;
+    this.activatePoll();
+    this.checkPending();
+  },
+
+  prevSession() {
+    if (!this.sessions || this.sessions.length <= 1) return;
+    const currentIndex = this.sessions.findIndex(s => s.id === this.selectedSession.id);
+    const prevIndex = currentIndex > 0 ? currentIndex - 1 : this.sessions.length - 1;
+    this.selectSession(this.sessions[prevIndex]);
+  },
+
+  nextSession() {
+    if (!this.sessions || this.sessions.length <= 1) return;
+    const currentIndex = this.sessions.findIndex(s => s.id === this.selectedSession.id);
+    const nextIndex = currentIndex < this.sessions.length - 1 ? currentIndex + 1 : 0;
+    this.selectSession(this.sessions[nextIndex]);
+  },
+
+  checkPending() {
+    if (!this.selectedSession) return this.loadSessions();
+    const sessionId = this.selectedSession.id;
+    fetch.fetch({
+      url: this.serverBase + '/session/' + sessionId + '/permissions',
+      method: 'GET',
+      success: (data) => {
+        let json = data.data;
+        if (typeof json === 'string') {
+          try {
+            json = JSON.parse(json);
+          } catch (e) {
+            this.checkMessages(sessionId);
+            return;
+          }
+        }
+        if (Array.isArray(json) && json.length > 0) {
+          this.currentPermission = json[0];
+          this.currentOptions = [];
+          this.debug = '发现权限请求';
+        } else {
+          this.currentPermission = null;
+          this.checkMessages(sessionId);
+        }
+      },
+      fail: () => {
+        this.debug = '权限检查失败';
+      }
+    });
+  },
+
+  checkMessages(sessionId) {
+    fetch.fetch({
+      url: this.serverBase + '/session/' + sessionId + '/message?limit=1',
+      method: 'GET',
+      success: (data) => {
+        let json = data.data;
+        if (typeof json === 'string') {
+          try {
+            json = JSON.parse(json);
+          } catch (e) {
+            return;
+          }
+        }
+        if (Array.isArray(json) && json.length > 0) {
+          const msg = json[0];
+          let text = '';
+          if (msg.parts && Array.isArray(msg.parts)) {
+            for (let i = 0; i < msg.parts.length; i++) {
+              const part = msg.parts[i];
+              if (part.type === 'text' && part.text) {
+                text += part.text + ' ';
+              }
+            }
+          }
+          text = text.trim();
+          const options = this.detectOptions(text);
+          if (options.length > 0) {
+            this.currentOptions = options;
+            this.currentMessage = text.substring(0, 80);
+            this.debug = '发现选项: ' + options.length + '个';
+          } else {
+            this.currentOptions = [];
+          }
+        }
+      },
+      fail: () => {
+        this.debug = '消息检查失败';
+      }
+    });
+  },
+
+  detectOptions(text) {
+    const options = [];
+    if (!text) return options;
+    const lower = text.toLowerCase();
+
+    const numMatches = text.match(/[1-9][.、)]\s*([^\n]+)/g);
+    if (numMatches) {
+      for (let i = 0; i < numMatches.length && i < 5; i++) {
+        const match = numMatches[i].replace(/^[1-9][.、)]\s*/, '').trim();
+        if (match && match.length < 20 && !options.includes(match)) {
+          options.push(match);
+        }
+      }
+    }
+
+    const abcd = text.match(/[A-D][.、)]\s*([^\n]+)/g);
+    if (abcd) {
+      for (let j = 0; j < abcd.length && j < 5; j++) {
+        const match = abcd[j].replace(/^[A-D][.、)]\s*/, '').trim();
+        if (match && match.length < 20 && !options.includes(match)) {
+          options.push(match);
+        }
+      }
+    }
+
+    const standard = [
+      { keywords: ['继续', 'continue', 'go on'], option: '继续' },
+      { keywords: ['确认', 'confirm', '确定'], option: '确认' },
+      { keywords: ['取消', 'cancel', '放弃'], option: '取消' },
+      { keywords: ['完成', 'done', '结束'], option: '完成' },
+      { keywords: ['是', 'yes', '好的', 'ok'], option: '是' },
+      { keywords: ['否', 'no', '不要'], option: '否' }
+    ];
+
+    for (let k = 0; k < standard.length; k++) {
+      let found = false;
+      for (let m = 0; m < standard[k].keywords.length; m++) {
+        if (lower.includes(standard[k].keywords[m])) {
+          found = true;
+          break;
+        }
+      }
+      if (found && !options.includes(standard[k].option)) {
+        options.push(standard[k].option);
+      }
+    }
+
+    return options.slice(0, 5);
+  },
+
+  respondPermission(response) {
+    if (!this.currentPermission || !this.selectedSession) return;
+    fetch.fetch({
+      url: this.serverBase + '/session/' + this.selectedSession.id + '/permissions/' + this.currentPermission.id,
+      method: 'POST',
+      body: JSON.stringify({ response: response }),
+      success: () => {
+        this.currentPermission = null;
+        this.debug = '权限已响应';
+      }
+    });
+  },
+
+  sendReply(option) {
+    let sessionId = '';
+    if (!this.selectedSession && this.sessions.length > 0) {
+      this.selectedSession = this.sessions[0];
+      this.debug = '自动选会话: ' + this.sessions[0].title;
+    }
+    if (this.selectedSession) sessionId = this.selectedSession.id;
+    if (!sessionId) {
+      this.debug = '无会话';
+      return;
+    }
+    this.debug = '发送: ' + option;
+    fetch.fetch({
+      url: this.serverBase + '/session/' + sessionId + '/message',
+      method: 'POST',
+      header: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        parts: [{ type: 'text', text: option }]
+      }),
+      timeout: 30000,
+      success: () => {
+        this.debug = '✓ 已发送: ' + option;
+      },
+      fail: () => {
+        this.debug = '发送中...';
+      }
+    });
+  },
+
+  startVoiceInput() {
+    this.debug = '语音功能暂不可用';
+    this.latestMessage = '手环硬件不支持语音输入';
+  },
+
+  onBtnClick(btnType, text) {
+    this.btnPressed = btnType;
+    setTimeout(() => {
+      this.btnPressed = '';
+    }, 150);
+
+    if (btnType === 'voice') return this.startVoiceInput();
+
+    const s = this.sessions;
+    let sessionId = s && s.length > 0 ? s[0].id : '';
+    if (!sessionId) {
+      this.debug = '无会话';
+      return;
+    }
+    this.debug = '发送: ' + text;
+    const url = this.serverBase + '/session/' + sessionId + '/message';
+    fetch.fetch({
+      url: url,
+      method: 'POST',
+      data: JSON.stringify({ parts: [{ type: 'text', text: text }] }),
+      header: { 'Content-Type': 'application/json' },
+      success: (res) => {
+        this.debug = '✓ 成功: code=' + (res ? res.code : '?');
+        this.activatePoll();
+      },
+      fail: (err) => {
+        this.debug = '✗ 失败: ' + JSON.stringify(err).substring(0, 50);
+      }
+    });
+  },
+
+  showKeyboard() {
+    this.showKeyboardPanel = true;
+    this.debug = '打开键盘';
+  },
+
+  hideKeyboard() {
+    this.showKeyboardPanel = false;
+    this.keyboardInput = '';
+    this.debug = '关闭键盘';
+  },
+
+  onInputComplete(evt) {
+    const content = evt && evt.detail && evt.detail.content ? evt.detail.content : (evt && evt.content ? evt.content : '');
+    if (content) {
+      this.keyboardInput = (this.keyboardInput || '') + content;
+    }
+  },
+
+  onInputDelete() {
+    if (this.keyboardInput.length > 0) {
+      this.keyboardInput = this.keyboardInput.substring(0, this.keyboardInput.length - 1);
+      this.debug = '删除: ' + this.keyboardInput;
+    }
+  },
+
+  onInputKeyDown(evt) {
+    var char = evt.detail ? evt.detail.content : '';
+    if (char) {
+      this.keyboardInput = (this.keyboardInput || '') + char;
+      this.debug = '按键: ' + char;
+    }
+  },
+
+  sendKeyboardInput() {
+    const text = this.keyboardInput.trim();
+    if (!text) {
+      this.debug = '请输入内容';
+      return;
+    }
+    const s = this.sessions;
+    let sessionId = s && s.length > 0 ? s[0].id : '';
+    if (!sessionId) {
+      this.debug = '无会话';
+      return;
+    }
+    this.debug = '发送: ' + text;
+    fetch.fetch({
+      url: this.serverBase + '/session/' + sessionId + '/message',
+      method: 'POST',
+      data: JSON.stringify({ parts: [{ type: 'text', text: text }] }),
+      header: { 'Content-Type': 'application/json' },
+      success: () => {
+        this.debug = '✓ 已发送: ' + text;
+        this.keyboardInput = '';
+        this.showKeyboardPanel = false;
+        this.isThinking = true;
+        this.latestMessage = '正在思考中...';
+        this.activatePoll();
+      },
+      fail: () => {
+        this.debug = '✗ 发送失败';
+        this.showKeyboardPanel = false;
+      }
+    });
+  }
+}
+</script>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  background-color: #0d0d0d;
+  flex-direction: column;
+  position: relative;
+}
+
+.status-bar {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  background-color: #111111;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-bottom-color: #1a1a1a;
+}
+
+.signal {
+  flex-direction: row;
+  align-items: flex-end;
+  height: 14px;
+  margin-right: 12px;
+}
+
+.sig {
+  width: 3px;
+  background-color: #333333;
+  margin-right: 1px;
+}
+
+.sig-on {
+  background-color: #00e676;
+}
+
+.sig-off {
+  background-color: #333333;
+}
+
+.app-name {
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: 3px;
+}
+
+.app-icon {
+  width: 28px;
+  height: 28px;
+  margin-left: 12px;
+  margin-right: 12px;
+}
+
+.batt {
+  flex-direction: row;
+  align-items: center;
+}
+
+.batt-body {
+  width: 22px;
+  height: 11px;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  border-top-color: #555555;
+  border-right-color: #555555;
+  border-bottom-color: #555555;
+  border-left-color: #555555;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.batt-fill {
+  height: 100%;
+  background-color: #00e676;
+}
+
+.batt-tip {
+  width: 2px;
+  height: 5px;
+  background-color: #555555;
+  margin-left: 1px;
+}
+
+.session-bar {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 0 8px;
+  padding: 0 16px;
+  width: 336px;
+  box-sizing: border-box;
+}
+
+.session-card {
+  flex: 1;
+  padding: 8px 12px;
+  background-color: #151515;
+  border-radius: 10px;
+  margin: 0 8px;
+}
+
+.nav-btn {
+  color: #00ff88;
+  font-size: 32px;
+  padding: 0 4px;
+}
+
+.session-title {
+  color: #eeeeee;
+  font-size: 20px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.session-meta {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+}
+
+.dot-on {
+  background-color: #00e676;
+}
+
+.dot-off {
+  background-color: #555555;
+}
+
+.session-status {
+  color: #777777;
+  font-size: 13px;
+}
+
+.msg-card {
+  margin: 8px 16px;
+  padding: 12px 14px;
+  background-color: #151515;
+  border-radius: 10px;
+  border-left-width: 3px;
+  border-left-color: #00e676;
+  border-left-style: solid;
+  height: 250px;
+}
+
+.msg-done {
+  color: #00ff88;
+  font-size: 14px;
+  margin-top: 8px;
+  font-weight: bold;
+}
+
+.msg-text {
+  color: #ffffff;
+  font-size: 18px;
+  align-self: flex-start;
+}
+
+.msg-thinking {
+  color: #00e676;
+  font-style: italic;
+}
+
+.perm-card {
+  margin: 0 16px 8px;
+  padding: 14px;
+  background-color: #1a1210;
+  border-radius: 10px;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  border-top-style: solid;
+  border-right-style: solid;
+  border-bottom-style: solid;
+  border-left-style: solid;
+  border-top-color: #2a1a18;
+  border-right-color: #2a1a18;
+  border-bottom-color: #2a1a18;
+  border-left-color: #2a1a18;
+  flex-direction: column;
+}
+
+.perm-title {
+  color: #ff7043;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.perm-desc {
+  color: #999999;
+  font-size: 14px;
+  margin-top: 6px;
+  lines: 2;
+}
+
+.perm-row {
+  flex-direction: row;
+  justify-content: space-around;
+  margin-top: 12px;
+}
+
+.perm-btn {
+  padding: 8px 18px;
+  border-radius: 16px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.perm-allow {
+  background-color: #1a2a1a;
+  color: #00e676;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  border-top-style: solid;
+  border-right-style: solid;
+  border-bottom-style: solid;
+  border-left-style: solid;
+  border-top-color: #2a3a2a;
+  border-right-color: #2a3a2a;
+  border-bottom-color: #2a3a2a;
+  border-left-color: #2a3a2a;
+}
+
+.perm-always {
+  background-color: #1a1a2a;
+  color: #448aff;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  border-top-style: solid;
+  border-right-style: solid;
+  border-bottom-style: solid;
+  border-left-style: solid;
+  border-top-color: #2a2a3a;
+  border-right-color: #2a2a3a;
+  border-bottom-color: #2a2a3a;
+  border-left-color: #2a2a3a;
+}
+
+.perm-deny {
+  background-color: #2a1a1a;
+  color: #ff5252;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  border-top-style: solid;
+  border-right-style: solid;
+  border-bottom-style: solid;
+  border-left-style: solid;
+  border-top-color: #3a2a2a;
+  border-right-color: #3a2a2a;
+  border-bottom-color: #3a2a2a;
+  border-left-color: #3a2a2a;
+}
+
+.session-list {
+  flex: 1;
+  background-color: #0d0d0d;
+}
+
+.session-item {
+  padding: 14px 16px;
+  margin: 0 16px 6px;
+  background-color: #151515;
+  border-radius: 8px;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  border-top-style: solid;
+  border-right-style: solid;
+  border-bottom-style: solid;
+  border-left-style: solid;
+  border-top-color: #1e1e1e;
+  border-right-color: #1e1e1e;
+  border-bottom-color: #1e1e1e;
+  border-left-color: #1e1e1e;
+}
+
+.session-item-title {
+  color: #cccccc;
+  font-size: 16px;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.action-bar {
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  padding: 10px 12px;
+  background-color: #111111;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: #1a1a1a;
+}
+
+.act {
+  flex: 1;
+  margin: 0 5px;
+  padding: 12px 0;
+  background-color: #1a1a1a;
+  border-radius: 20px;
+  justify-content: center;
+  align-items: center;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  border-top-style: solid;
+  border-right-style: solid;
+  border-bottom-style: solid;
+  border-left-style: solid;
+  border-top-color: #252525;
+  border-right-color: #252525;
+  border-bottom-color: #252525;
+  border-left-color: #252525;
+}
+
+.act-active {
+  background-color: #00e676;
+  border-top-color: #00e676;
+  border-right-color: #00e676;
+  border-bottom-color: #00e676;
+  border-left-color: #00e676;
+}
+
+.act-text {
+  color: #ffffff;
+  font-size: 15px;
+  text-align: center;
+}
+
+.mic {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.mic-head {
+  width: 12px;
+  height: 18px;
+  background-color: #ffffff;
+  border-radius: 6px 6px 3px 3px;
+}
+
+.mic-stand {
+  width: 18px;
+  height: 3px;
+  background-color: #ffffff;
+  border-radius: 2px;
+  margin-top: 2px;
+}
+
+.kb-bar {
+  position: absolute;
+  bottom: 265px;
+  left: 0;
+  right: 0;
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #1a1a1a;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: #252525;
+  z-index: 999;
+}
+
+.kb-close {
+  color: #ff5252;
+  font-size: 20px;
+  padding: 8px 12px;
+  margin-right: 8px;
+}
+
+.kb-preview {
+  flex: 1;
+  color: #cccccc;
+  font-size: 16px;
+  padding: 10px 12px;
+  background-color: #222222;
+  border-radius: 6px;
+}
+
+.kb-send {
+  color: #000000;
+  font-size: 14px;
+  padding: 10px 20px;
+  background-color: #00e676;
+  border-radius: 6px;
+  margin-left: 8px;
+}
+</style>

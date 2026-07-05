@@ -1,0 +1,365 @@
+<template>
+  <div class="page" @swipe="handleSwipe" @touchstart="handleTouchStart" @touchend="handleTouchEnd">
+    <div class="header">
+      <text class="title">使用统计</text>
+    </div>
+
+    <div class="stat-card">
+      <text class="stat-label" style="font-size: {{fsLabel}}px;">Token 总量</text>
+      <text class="stat-big" style="font-size: {{fsBig}}px;">{{formatNumber(stats.totalTokens)}}</text>
+      <text class="stat-sub">输入: {{formatNumber(stats.inputTokens)}} | 输出: {{formatNumber(stats.outputTokens)}}</text>
+    </div>
+
+    <div class="stat-card">
+      <text class="stat-label" style="font-size: {{fsLabel}}px;">今日每小时用量</text>
+      <div class="hour-chart">
+        <div class="hour-bars">
+          <div class="hour-bar-col" for="{{hourlyData}}">
+            <div class="hour-bar-bg">
+              <div class="hour-bar" style="height: {{$item.percent}}%;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="hour-labels">
+          <text class="hour-label" for="{{hourLabels}}">{{$item}}</text>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <text class="stat-label" style="font-size: {{fsLabel}}px;">模型用量</text>
+      <div class="model-list">
+        <div class="model-item" for="{{modelList}}">
+          <text class="model-rank">{{$idx + 1}}.</text>
+          <text class="model-name" style="font-size: {{fs}}px;">{{$item.name}}</text>
+          <text class="model-value" style="font-size: {{fs}}px;">{{formatNumber($item.tokens)}}</text>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import fetch from '@app-module/system.fetch';
+import storage from '@app-module/system.storage';
+import router from '@app-module/system.router';
+
+const DEFAULT_STATS_HOST = '100.87.23.38';
+const STATS_PORT = '4096';
+
+export default {
+  data: {
+    stats: {
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0
+    },
+    hourlyData: [],
+    hourLabels: [],
+    modelList: [],
+    fontSize: 'medium',
+    statsUrl: ''
+  },
+
+  computed: {
+    fs() {
+      if (this.fontSize === 'small') return 28;
+      if (this.fontSize === 'large') return 52;
+      return 36;
+    },
+    fsBig() {
+      if (this.fontSize === 'small') return 48;
+      if (this.fontSize === 'large') return 96;
+      return 72;
+    },
+    fsLabel() {
+      if (this.fontSize === 'small') return 26;
+      if (this.fontSize === 'large') return 44;
+      return 32;
+    }
+  },
+
+  onReady() {
+    this.loadSettings(() => {
+      this.loadFontSize()
+      this.loadStats()
+    })
+  },
+
+  onShow() {
+    this.loadSettings(() => {
+      this.loadFontSize()
+      this.loadStats()
+    })
+  },
+
+  loadSettings(callback) {
+    var that = this
+    storage.get({
+      key: 'serverHost',
+      success: function(host) {
+        that.statsUrl = 'http://' + (host || DEFAULT_STATS_HOST) + ':' + STATS_PORT
+        if (callback) callback()
+      },
+      fail: function() {
+        that.statsUrl = 'http://' + DEFAULT_STATS_HOST + ':' + STATS_PORT
+        if (callback) callback()
+      }
+    })
+  },
+
+  loadFontSize() {
+    var that = this
+    storage.get({
+      key: 'fontSize',
+      success: function(data) {
+        that.fontSize = data || 'medium'
+      },
+      fail: function() {
+        that.fontSize = 'medium'
+      }
+    })
+  },
+
+  handleTouchStart(e) {
+    this._touchStartX = e.touches[0].clientX
+    this._touchStartY = e.touches[0].clientY
+  },
+
+  handleTouchEnd(e) {
+    if (!this._touchStartX) return;
+    var endX = e.changedTouches[0].clientX;
+    var diffX = endX - this._touchStartX;
+    var diffY = Math.abs(e.changedTouches[0].clientY - this._touchStartY);
+    if (diffX > 50 && diffY < 30) {
+      router.back();
+    }
+    this._touchStartX = null;
+  },
+
+  handleSwipe(e) {
+    if ('right' === e.direction) {
+      router.back();
+    }
+  },
+
+  formatNumber(num) {
+    if (!num) return '0'
+    if (num >= 100000000) return (num / 100000000).toFixed(1) + '亿'
+    if (num >= 10000) return (num / 10000).toFixed(1) + 'W'
+    return num.toString()
+  },
+
+  loadStats() {
+    var that = this
+    fetch.fetch({
+      url: (this.statsUrl || ('http://' + DEFAULT_STATS_HOST + ':' + STATS_PORT)) + '/session',
+      method: 'GET',
+      timeout: 10000,
+      success: function (data) {
+        var json = data.data
+        if ('string' == typeof json) {
+          try { json = JSON.parse(json) } catch (e) { return }
+        }
+        if (!Array.isArray(json)) {
+          if (json && json.data && Array.isArray(json.data)) json = json.data
+          else return
+        }
+
+        var totalTokens = { input: 0, output: 0 }
+        var modelUsage = {}
+        var hourlyTokens = {}
+
+        var now = new Date()
+        var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+
+        for (var i = 0; i < json.length; i++) {
+          var s = json[i]
+          if (s.tokens) {
+            totalTokens.input += s.tokens.input || 0
+            totalTokens.output += s.tokens.output || 0
+          }
+          if (s.model && s.model.id) {
+            var modelId = s.model.id
+            if (!modelUsage[modelId]) modelUsage[modelId] = 0
+            modelUsage[modelId] += (s.tokens ? (s.tokens.input + s.tokens.output) : 0)
+          }
+          var updated = s.time ? s.time.updated : 0
+          if (updated >= todayStart) {
+            var d = new Date(updated)
+            var h = d.getHours()
+            if (!hourlyTokens[h]) hourlyTokens[h] = 0
+            hourlyTokens[h] += (s.tokens ? (s.tokens.input + s.tokens.output) : 0)
+          }
+        }
+
+        var allTokens = totalTokens.input + totalTokens.output
+        that.stats.totalTokens = allTokens
+        that.stats.inputTokens = totalTokens.input
+        that.stats.outputTokens = totalTokens.output
+
+        var maxHourly = 1
+        var hourlyArr = []
+        var labels = []
+        for (var j = 0; j < 12; j++) {
+          var h1 = j * 2
+          var h2 = h1 + 1
+          var val = (hourlyTokens[h1] || 0) + (hourlyTokens[h2] || 0)
+          if (val > maxHourly) maxHourly = val
+          hourlyArr.push({ val: val, tokens: val })
+          labels.push(h1 + 'h')
+        }
+        for (var k = 0; k < hourlyArr.length; k++) {
+          hourlyArr[k].percent = maxHourly > 0 ? Math.round(hourlyArr[k].tokens / maxHourly * 100) : 0
+        }
+        that.hourlyData = hourlyArr
+        that.hourLabels = labels
+
+        var models = []
+        for (var key in modelUsage) models.push({ name: key, tokens: modelUsage[key] })
+        models.sort(function (a, b) { return b.tokens - a.tokens })
+        that.modelList = models.slice(0, 5)
+      },
+      fail: function () {}
+    })
+  }
+}
+</script>
+
+<style>
+.page {
+  flex-direction: column;
+  background-color: #0a0a0a;
+}
+
+.header {
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  border-bottom-width: 2px;
+  border-bottom-style: solid;
+  border-bottom-color: #00ff88;
+}
+
+.title {
+  color: #00ff88;
+  font-size: 32px;
+  font-weight: bold;
+}
+
+.stat-card {
+  background-color: #1a1a1a;
+  margin: 10px 20px;
+  border-radius: 12px;
+  padding: 16px;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  border-top-style: solid;
+  border-right-style: solid;
+  border-bottom-style: solid;
+  border-left-style: solid;
+  border-top-color: #333333;
+  border-right-color: #333333;
+  border-bottom-color: #333333;
+  border-left-color: #333333;
+  flex-direction: column;
+}
+
+.stat-label {
+  color: #888888;
+  font-size: 18px;
+}
+
+.stat-big {
+  color: #00ff88;
+  font-size: 36px;
+  font-weight: bold;
+  margin-top: 6px;
+}
+
+.stat-sub {
+  color: #666666;
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.hour-chart {
+  flex-direction: column;
+  margin-top: 10px;
+}
+
+.hour-bars {
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 80px;
+}
+
+.hour-bar-col {
+  flex: 1;
+  margin: 0 2px;
+}
+
+.hour-bar-bg {
+  height: 80px;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  overflow: hidden;
+  justify-content: flex-end;
+}
+
+.hour-bar {
+  background-color: #00ff88;
+  border-radius: 4px;
+  min-height: 2px;
+}
+
+.hour-labels {
+  flex-direction: row;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.hour-label {
+  flex: 1;
+  color: #666666;
+  font-size: 11px;
+  text-align: center;
+}
+
+.model-list {
+  flex-direction: column;
+  margin-top: 10px;
+}
+
+.model-item {
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-bottom-color: #333333;
+}
+
+.model-rank {
+  color: #00ff88;
+  font-size: 18px;
+  font-weight: bold;
+  width: 28px;
+}
+
+.model-name {
+  color: #cccccc;
+  font-size: 18px;
+  flex: 1;
+}
+
+.model-value {
+  color: #00ff88;
+  font-size: 18px;
+  font-weight: bold;
+}
+</style>

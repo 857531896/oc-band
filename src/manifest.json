@@ -1,0 +1,49 @@
+{
+  "package": "com.opencode.bandcontrol",
+  "name": "Tlen助手",
+  "versionName": "1.2.0",
+  "versionCode": 12,
+  "minPlatformVersion": 1100,
+  "icon": "/common/logo.png",
+  "simulationVersion": "default",
+  "deviceTypeList": [
+    "watch"
+  ],
+  "features": [
+    { "name": "system.router" },
+    { "name": "system.storage" },
+    { "name": "system.prompt" },
+    { "name": "system.file" },
+    { "name": "system.interconnect" },
+    { "name": "system.app" },
+    { "name": "system.brightness" },
+    { "name": "system.device" },
+    { "name": "system.vibrator" },
+    { "name": "system.battery" },
+    { "name": "system.fetch" },
+    { "name": "system.timer" },
+    { "name": "system.notification" }
+  ],
+  "config": {
+    "logLevel": "log",
+    "designWidth": 336
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index",
+        "launchMode": "singleTask"
+      },
+      "pages/stats": {
+        "component": "stats"
+      },
+      "pages/settings": {
+        "component": "settings"
+      }
+    }
+  },
+  "display": {
+    "backgroundColor": "#000000"
+  }
+}

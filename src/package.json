@@ -1,0 +1,13 @@
+{
+  "name": "tlen-band",
+  "version": "1.2.0",
+  "description": "Tlen助手 - 小米手环 AI 对话客户端",
+  "scripts": {
+    "build": "aiot build",
+    "release": "aiot release",
+    "start": "aiot start"
+  },
+  "devDependencies": {
+    "aiot-toolkit": "^2.0.5"
+  }
+}

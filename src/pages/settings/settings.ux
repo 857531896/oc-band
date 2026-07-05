@@ -1,0 +1,346 @@
+<import name="input-method" src="../../components/InputMethod/InputMethod.ux"></import>
+<template>
+  <div class="page">
+    <div class="header">
+      <text class="header-title">设置</text>
+    </div>
+
+    <div class="section">
+      <text class="section-title">服务器地址</text>
+
+      <div class="field">
+        <text class="input-display full" @click="editHost">{{ serverHost || '点击输入服务器IP' }}</text>
+      </div>
+    </div>
+
+    <div class="section">
+      <text class="section-title">字体大小</text>
+      <div class="font-list">
+        <text class="{{fontSize === 'small' ? 'font-btn font-active' : 'font-btn'}}" @click="setFontSize('small')">小</text>
+        <text class="{{fontSize === 'medium' ? 'font-btn font-active' : 'font-btn'}}" @click="setFontSize('medium')">中</text>
+        <text class="{{fontSize === 'large' ? 'font-btn font-active' : 'font-btn'}}" @click="setFontSize('large')">大</text>
+      </div>
+    </div>
+
+    <div class="section">
+      <text class="section-title">快捷切换</text>
+      <div class="preset-list">
+        <text class="preset-btn" for="{{ presets }}" @click="applyPreset($item)">{{ $item.label }}</text>
+      </div>
+    </div>
+
+    <div class="section">
+      <text class="section-title">当前配置</text>
+      <text class="info">主服务: {{ fullServerUrl }}</text>
+      <text class="info">统计服务: {{ fullStatsUrl }}</text>
+    </div>
+
+    <div class="btn-row">
+      <text class="btn btn-test" @click="testConnection">测试</text>
+      <text class="btn btn-save" @click="saveSettings">保存</text>
+    </div>
+
+    <text class="status" if="{{ statusMsg }}">{{ statusMsg }}</text>
+
+    <!-- 输入法组件 -->
+    <input-method id="settings-input" hide="{{ !showKeyboardPanel }}" keyboardtype="ALL" screentype="rect" @complete="onInputComplete" @delete="onInputDelete"></input-method>
+
+    <!-- 输入预览栏 -->
+    <div class="kb-bar" if="{{ showKeyboardPanel }}">
+      <text class="kb-preview">{{ keyboardInput || '(输入)' }}</text>
+      <text class="kb-confirm" @click="confirmInput">✓</text>
+      <text class="kb-cancel" @click="cancelInput">✕</text>
+    </div>
+  </div>
+</template>
+
+<script>
+import fetch from '@app-module/system.fetch';
+import storage from '@app-module/system.storage';
+import prompt from '@app-module/system.prompt';
+import router from '@app-module/system.router';
+
+const DEFAULT_SERVER_HOST = '100.87.23.38';
+const SERVER_PORT = '4096';
+const STATS_PORT = '4097';
+
+export default {
+  data: {
+    serverHost: '',
+    statusMsg: '',
+    showKeyboardPanel: false,
+    keyboardInput: '',
+    fontSize: 'medium',
+    presets: [
+      { label: '默认', host: '100.87.23.38' },
+      { label: '本地', host: '127.0.0.1' },
+      { label: '局域网', host: '192.168.1.100' }
+    ]
+  },
+
+  computed: {
+    fullServerUrl() {
+      return 'http://' + this.serverHost + ':' + SERVER_PORT;
+    },
+    fullStatsUrl() {
+      return 'http://' + this.serverHost + ':' + STATS_PORT;
+    }
+  },
+
+  onInit() {
+    this.loadSettings();
+    this.loadFontSize();
+  },
+
+  loadSettings() {
+    var that = this;
+    storage.get({
+      key: 'serverHost',
+      success: function(data) {
+        that.serverHost = data || DEFAULT_SERVER_HOST;
+      },
+      fail: function() {
+        that.serverHost = DEFAULT_SERVER_HOST;
+      }
+    });
+  },
+
+  loadFontSize() {
+    var that = this;
+    storage.get({
+      key: 'fontSize',
+      success: function(data) {
+        that.fontSize = data || 'medium';
+      },
+      fail: function() {
+        that.fontSize = 'medium';
+      }
+    });
+  },
+
+  setFontSize(size) {
+    this.fontSize = size;
+    storage.set({ key: 'fontSize', value: size });
+    prompt.showToast({ message: '字体已设置为' + (size === 'small' ? '小' : size === 'large' ? '大' : '中') });
+  },
+
+  editHost() {
+    this.keyboardInput = this.serverHost;
+    this.showKeyboardPanel = true;
+  },
+
+  onInputComplete(evt) {
+    const content = evt && evt.detail && evt.detail.content ? evt.detail.content : (evt && evt.content ? evt.content : '');
+    if (content) {
+      this.keyboardInput = (this.keyboardInput || '') + content;
+    }
+  },
+
+  onInputDelete() {
+    if (this.keyboardInput.length > 0) {
+      this.keyboardInput = this.keyboardInput.slice(0, -1);
+    }
+  },
+
+  onInputKeyDown(data) {
+    var char = data.detail ? data.detail.content : data.key || '';
+    this.keyboardInput = (this.keyboardInput || '') + char;
+  },
+
+  confirmInput() {
+    this.serverHost = this.keyboardInput;
+    this.showKeyboardPanel = false;
+    this.keyboardInput = '';
+  },
+
+  cancelInput() {
+    this.showKeyboardPanel = false;
+    this.keyboardInput = '';
+  },
+
+  saveSettings() {
+    if (!this.serverHost) {
+      this.statusMsg = '请输入服务器地址';
+      return;
+    }
+    storage.set({ key: 'serverHost', value: this.serverHost });
+    this.statusMsg = '已保存';
+    prompt.showToast({ message: '设置已保存' });
+  },
+
+  testConnection() {
+    var that = this;
+    var url = this.fullServerUrl + '/session';
+    that.statusMsg = '测试中...';
+    fetch.fetch({
+      url: url,
+      method: 'GET',
+      timeout: 5000,
+      success: function(data) {
+        that.statusMsg = '连接成功';
+        prompt.showToast({ message: '连接成功' });
+      },
+      fail: function() {
+        that.statusMsg = '连接失败';
+        prompt.showToast({ message: '连接失败' });
+      }
+    });
+  },
+
+  applyPreset(item) {
+    this.serverHost = item.host;
+    this.statusMsg = '已切换: ' + item.label;
+  },
+
+  goBack() {
+    router.back();
+  }
+}
+</script>
+
+<style>
+.page {
+  flex-direction: column;
+  background-color: #0a0a0a;
+  width: 100%;
+  height: 100%;
+}
+.header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-bottom-width: 2px;
+  border-bottom-color: #00ff88;
+}
+.header-title {
+  color: #00ff88;
+  font-size: 28px;
+  font-weight: bold;
+}
+.section {
+  margin: 12px 16px 8px;
+}
+.section-title {
+  color: #666666;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.font-list {
+  flex-direction: row;
+}
+.font-btn {
+  background-color: #1a1a1a;
+  color: #888888;
+  font-size: 18px;
+  padding: 10px 24px;
+  border-radius: 8px;
+  margin-right: 10px;
+  border-width: 1px;
+  border-color: #333333;
+  border-style: solid;
+}
+.font-active {
+  background-color: #00ff88;
+  color: #000000;
+  border-color: #00ff88;
+}
+.field {
+  margin-bottom: 8px;
+}
+.input-display {
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 22px;
+  padding: 14px 16px;
+  border-width: 1px;
+  border-color: #00ff88;
+}
+.input-display.full {
+  width: 100%;
+  box-sizing: border-box;
+}
+.preset-list {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.preset-btn {
+  background-color: #1a1a1a;
+  color: #00ff88;
+  font-size: 18px;
+  padding: 8px 16px;
+  border-radius: 16px;
+  margin-right: 8px;
+  margin-bottom: 8px;
+  border-width: 1px;
+  border-color: #333333;
+}
+.info {
+  color: #00ff88;
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+.btn-row {
+  flex-direction: row;
+  justify-content: center;
+  margin: 16px 0;
+}
+.btn {
+  height: 44px;
+  border-radius: 22px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  padding: 0 28px;
+  margin: 0 8px;
+}
+.btn-test {
+  background-color: #1a1a1a;
+  color: #00ff88;
+  border-width: 2px;
+  border-color: #00ff88;
+}
+.btn-save {
+  background-color: #00ff88;
+  color: #000000;
+}
+.status {
+  color: #ff6b6b;
+  font-size: 18px;
+  text-align: center;
+}
+.kb-bar {
+  position: fixed;
+  bottom: 265px;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background-color: #1a1a1a;
+  flex-direction: row;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 999;
+}
+.kb-preview {
+  flex: 1;
+  color: #ffffff;
+  font-size: 20px;
+  background-color: #333333;
+  border-radius: 6px;
+  padding: 8px 14px;
+  margin-right: 12px;
+}
+.kb-confirm {
+  color: #00ff88;
+  font-size: 24px;
+  font-weight: bold;
+  padding: 8px 20px;
+  margin-right: 8px;
+}
+.kb-cancel {
+  color: #ff6b6b;
+  font-size: 24px;
+  padding: 8px 16px;
+}
+</style>

@@ -1,0 +1,20 @@
+<template>
+  <div>
+    <slot></slot>
+  </div>
+</template>
+
+<script>
+export default {
+  onInit() {
+    console.log('App onInit - 尝试在这里初始化');
+    this.$app.$def.startTime = Date.now();
+  },
+  onShow() {
+    console.log('App onShow');
+  },
+  onReady() {
+    console.log('App onReady');
+  }
+}
+</script>
