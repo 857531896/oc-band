@@ -17,15 +17,12 @@
       </div>
       <div class="hour-chart">
         <div class="hour-bars">
-          <div class="hour-bar-col" for="{{hourlyData}}" tid="idx">
-            <div class="hour-bar-bg">
-              <div class="hour-bar" style="width: 100%; height: 70px; background-color: #00ff88; opacity: {{$item.opacity}};"></div>
-            </div>
-            <text class="hour-val" if="{{ $item.tokens > 0 }}">{{$item.display}}</text>
+          <div class="hour-bar-col" for="{{hourlyData}}">
+            <div class="hour-bar-bg" style="background-color: {{$item.color}};"></div>
           </div>
         </div>
         <div class="hour-labels">
-          <text class="hour-label" for="{{hourLabels}}" tid="$idx">{{$item}}</text>
+          <text class="hour-label" for="{{hourLabels}}">{{$item}}</text>
         </div>
       </div>
     </div>
@@ -155,14 +152,6 @@ export default {
     return num.toString()
   },
 
-  formatCompact(num) {
-    if (!num) return '0'
-    if (num >= 100000000) return (num / 100000000).toFixed(1) + '亿'
-    if (num >= 10000) return (num / 10000).toFixed(1) + 'W'
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
-    return num.toString()
-  },
-
   loadStats() {
     var that = this
     var baseUrl = this.statsUrl || ('http://' + DEFAULT_STATS_HOST + ':' + STATS_PORT)
@@ -238,7 +227,7 @@ export default {
     for (var i = 0; i < sessionIds.length; i++) {
       (function (sessionId) {
         fetch.fetch({
-          url: baseUrl + '/session/' + sessionId + '/message?limit=100',
+          url: baseUrl + '/session/' + sessionId + '/message?limit=50',
           method: 'GET',
           timeout: 15000,
           success: function (data) {
@@ -296,12 +285,20 @@ export default {
       var h2 = h1 + 1
       var val = (hourlyTokens[h1] || 0) + (hourlyTokens[h2] || 0)
       if (val > maxHourly) maxHourly = val
-      hourlyArr.push({ tokens: val, display: this.formatCompact(val) })
+      hourlyArr.push({ tokens: val })
       labels.push(h1 + 'h')
     }
     for (var k = 0; k < hourlyArr.length; k++) {
       var pct = maxHourly > 0 ? hourlyArr[k].tokens / maxHourly : 0
-      hourlyArr[k].opacity = pct > 0 ? Math.max(0.3, pct) : 0.1
+      if (pct === 0) {
+        hourlyArr[k].color = '#1a1a1a'
+      } else if (pct > 0.7) {
+        hourlyArr[k].color = '#00ff88'
+      } else if (pct > 0.3) {
+        hourlyArr[k].color = '#00cc6a'
+      } else {
+        hourlyArr[k].color = '#008844'
+      }
     }
     this.hourlyData = hourlyArr
     this.hourLabels = labels
@@ -393,17 +390,8 @@ export default {
 }
 
 .hour-bar-bg {
-  height: 80px;
-  background-color: #2a2a2a;
+  height: 60px;
   border-radius: 4px;
-  overflow: hidden;
-  justify-content: flex-end;
-}
-
-.hour-bar {
-  background-color: #00ff88;
-  border-radius: 4px;
-  min-height: 2px;
 }
 
 .hour-labels {
@@ -417,13 +405,6 @@ export default {
   color: #666666;
   font-size: 11px;
   text-align: center;
-}
-
-.hour-val {
-  color: #00ff88;
-  font-size: 10px;
-  text-align: center;
-  margin-top: 2px;
 }
 
 .model-list {
