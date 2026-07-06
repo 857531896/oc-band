@@ -18,7 +18,8 @@
       <div class="hour-chart">
         <div class="hour-bars">
           <div class="hour-bar-col" for="{{hourlyData}}">
-            <div class="hour-bar-bg" style="background-color: {{$item.color}};"></div>
+            <div class="hour-bar-empty" if="{{ $item.tokens === 0 }}"></div>
+            <div class="hour-bar-full" if="{{ $item.tokens > 0 }}"></div>
           </div>
         </div>
         <div class="hour-labels">
@@ -227,7 +228,7 @@ export default {
     for (var i = 0; i < sessionIds.length; i++) {
       (function (sessionId) {
         fetch.fetch({
-          url: baseUrl + '/session/' + sessionId + '/message?limit=50',
+          url: baseUrl + '/session/' + sessionId + '/message?limit=20',
           method: 'GET',
           timeout: 15000,
           success: function (data) {
@@ -277,28 +278,14 @@ export default {
   },
 
   buildHourlyChart(hourlyTokens) {
-    var maxHourly = 1
     var hourlyArr = []
     var labels = []
     for (var j = 0; j < 12; j++) {
       var h1 = j * 2
       var h2 = h1 + 1
       var val = (hourlyTokens[h1] || 0) + (hourlyTokens[h2] || 0)
-      if (val > maxHourly) maxHourly = val
       hourlyArr.push({ tokens: val })
       labels.push(h1 + 'h')
-    }
-    for (var k = 0; k < hourlyArr.length; k++) {
-      var pct = maxHourly > 0 ? hourlyArr[k].tokens / maxHourly : 0
-      if (pct === 0) {
-        hourlyArr[k].color = '#1a1a1a'
-      } else if (pct > 0.7) {
-        hourlyArr[k].color = '#00ff88'
-      } else if (pct > 0.3) {
-        hourlyArr[k].color = '#00cc6a'
-      } else {
-        hourlyArr[k].color = '#008844'
-      }
     }
     this.hourlyData = hourlyArr
     this.hourLabels = labels
@@ -386,11 +373,19 @@ export default {
 
 .hour-bar-col {
   flex: 1;
+  height: 60px;
   margin: 0 2px;
 }
 
-.hour-bar-bg {
+.hour-bar-empty {
   height: 60px;
+  background-color: #1a1a1a;
+  border-radius: 4px;
+}
+
+.hour-bar-full {
+  height: 60px;
+  background-color: #00ff88;
   border-radius: 4px;
 }
 
