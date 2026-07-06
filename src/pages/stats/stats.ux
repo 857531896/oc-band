@@ -165,8 +165,10 @@ export default {
 
   loadStats() {
     var that = this
+    var baseUrl = this.statsUrl || ('http://' + DEFAULT_STATS_HOST + ':' + STATS_PORT)
+    
     fetch.fetch({
-      url: (this.statsUrl || ('http://' + DEFAULT_STATS_HOST + ':' + STATS_PORT)) + '/session',
+      url: baseUrl + '/session',
       method: 'GET',
       timeout: 10000,
       success: function (data) {
@@ -181,8 +183,7 @@ export default {
 
         var totalTokens = { input: 0, output: 0 }
         var modelUsage = {}
-        var hourlyTokens = {}
-        var todayTotal = 0
+        var todaySessionIds = []
 
         var now = new Date()
         var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
@@ -199,13 +200,8 @@ export default {
             modelUsage[modelId] += (s.tokens ? (s.tokens.input + s.tokens.output) : 0)
           }
           var updated = s.time ? s.time.updated : 0
-          if (updated >= todayStart) {
-            var d = new Date(updated)
-            var h = d.getHours()
-            var sessionTokens = (s.tokens ? (s.tokens.input + s.tokens.output) : 0)
-            if (!hourlyTokens[h]) hourlyTokens[h] = 0
-            hourlyTokens[h] += sessionTokens
-            todayTotal += sessionTokens
+          if (updated >= todayStart && s.id) {
+            todaySessionIds.push(s.id)
           }
         }
 
@@ -213,33 +209,102 @@ export default {
         that.stats.totalTokens = allTokens
         that.stats.inputTokens = totalTokens.input
         that.stats.outputTokens = totalTokens.output
-        that.todayTokens = todayTotal
-
-        var maxHourly = 1
-        var hourlyArr = []
-        var labels = []
-        for (var j = 0; j < 12; j++) {
-          var h1 = j * 2
-          var h2 = h1 + 1
-          var val = (hourlyTokens[h1] || 0) + (hourlyTokens[h2] || 0)
-          if (val > maxHourly) maxHourly = val
-          hourlyArr.push({ tokens: val, display: that.formatCompact(val) })
-          labels.push(h1 + 'h')
-        }
-        for (var k = 0; k < hourlyArr.length; k++) {
-          var pct = maxHourly > 0 ? hourlyArr[k].tokens / maxHourly : 0
-          hourlyArr[k].opacity = pct > 0 ? Math.max(0.3, pct) : 0.1
-        }
-        that.hourlyData = hourlyArr
-        that.hourLabels = labels
 
         var models = []
         for (var key in modelUsage) models.push({ name: key, tokens: modelUsage[key] })
         models.sort(function (a, b) { return b.tokens - a.tokens })
         that.modelList = models.slice(0, 5)
+
+        if (todaySessionIds.length === 0) {
+          that.todayTokens = 0
+          that.hourlyData = []
+          that.hourLabels = []
+          return
+        }
+
+        that.loadHourlyStats(baseUrl, todaySessionIds, todayStart)
       },
       fail: function () {}
     })
+  },
+
+  loadHourlyStats(baseUrl, sessionIds, todayStart) {
+    var that = this
+    var hourlyTokens = {}
+    var todayTotal = 0
+    var fetched = 0
+    var total = sessionIds.length
+
+    for (var i = 0; i < sessionIds.length; i++) {
+      (function (sessionId) {
+        fetch.fetch({
+          url: baseUrl + '/session/' + sessionId + '/message?limit=100',
+          method: 'GET',
+          timeout: 15000,
+          success: function (data) {
+            var json = data.data
+            if ('string' == typeof json) {
+              try { json = JSON.parse(json) } catch (e) { json = [] }
+            }
+            if (!Array.isArray(json)) {
+              if (json && json.data && Array.isArray(json.data)) json = json.data
+              else json = []
+            }
+
+            for (var j = 0; j < json.length; j++) {
+              var msg = json[j]
+              var info = msg.info || {}
+              var time = info.time || {}
+              var tokens = info.tokens || {}
+              var ts = time.created || time.completed || 0
+              if (ts >= todayStart) {
+                var d = new Date(ts)
+                var h = d.getHours()
+                var t = (tokens.input || 0) + (tokens.output || 0)
+                if (t > 0) {
+                  if (!hourlyTokens[h]) hourlyTokens[h] = 0
+                  hourlyTokens[h] += t
+                  todayTotal += t
+                }
+              }
+            }
+
+            fetched++
+            if (fetched >= total) {
+              that.todayTokens = todayTotal
+              that.buildHourlyChart(hourlyTokens)
+            }
+          },
+          fail: function () {
+            fetched++
+            if (fetched >= total) {
+              that.todayTokens = todayTotal
+              that.buildHourlyChart(hourlyTokens)
+            }
+          }
+        })
+      })(sessionIds[i])
+    }
+  },
+
+  buildHourlyChart(hourlyTokens) {
+    var maxHourly = 1
+    var hourlyArr = []
+    var labels = []
+    for (var j = 0; j < 12; j++) {
+      var h1 = j * 2
+      var h2 = h1 + 1
+      var val = (hourlyTokens[h1] || 0) + (hourlyTokens[h2] || 0)
+      if (val > maxHourly) maxHourly = val
+      hourlyArr.push({ tokens: val, display: this.formatCompact(val) })
+      labels.push(h1 + 'h')
+    }
+    for (var k = 0; k < hourlyArr.length; k++) {
+      var pct = maxHourly > 0 ? hourlyArr[k].tokens / maxHourly : 0
+      hourlyArr[k].opacity = pct > 0 ? Math.max(0.3, pct) : 0.1
+    }
+    this.hourlyData = hourlyArr
+    this.hourLabels = labels
   }
 }
 </script>
