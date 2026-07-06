@@ -18,8 +18,7 @@
       <div class="hour-chart">
         <div class="hour-bars">
           <div class="hour-bar-col" for="{{hourlyData}}">
-            <div class="hour-bar-empty" if="{{ $item.tokens === 0 }}"></div>
-            <div class="hour-bar-full" if="{{ $item.tokens > 0 }}"></div>
+            <div class="{{$item.tokens > 0 ? 'hour-bar-full' : 'hour-bar-empty'}}"></div>
           </div>
         </div>
         <div class="hour-labels">
