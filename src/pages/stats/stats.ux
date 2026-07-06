@@ -18,7 +18,7 @@
       <div class="hour-chart">
         <div class="hour-bars">
           <div class="hour-bar-col" for="{{hourlyData}}">
-            <div class="{{$item.tokens > 0 ? 'hour-bar-full' : 'hour-bar-empty'}}"></div>
+            <div class="hour-bar-full"></div>
           </div>
         </div>
         <div class="hour-labels">
@@ -172,7 +172,8 @@ export default {
 
         var totalTokens = { input: 0, output: 0 }
         var modelUsage = {}
-        var todaySessionIds = []
+        var hourlyTokens = {}
+        var todayTotal = 0
 
         var now = new Date()
         var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
@@ -188,9 +189,30 @@ export default {
             if (!modelUsage[modelId]) modelUsage[modelId] = 0
             modelUsage[modelId] += (s.tokens ? (s.tokens.input + s.tokens.output) : 0)
           }
+
+          var created = s.time ? s.time.created : 0
           var updated = s.time ? s.time.updated : 0
-          if (updated >= todayStart && s.id) {
-            todaySessionIds.push(s.id)
+          var sessionTokens = (s.tokens ? (s.tokens.input + s.tokens.output) : 0)
+
+          if (created >= todayStart && sessionTokens > 0) {
+            var startH = new Date(created).getHours()
+            var endH = new Date(updated).getHours()
+            var hours = []
+            if (startH === endH) {
+              hours = [startH]
+            } else if (startH < endH) {
+              for (var h = startH; h <= endH; h++) hours.push(h)
+            } else {
+              for (var h = startH; h < 24; h++) hours.push(h)
+              for (var h = 0; h <= endH; h++) hours.push(h)
+            }
+            var perHour = Math.floor(sessionTokens / hours.length)
+            for (var k = 0; k < hours.length; k++) {
+              var h = hours[k]
+              if (!hourlyTokens[h]) hourlyTokens[h] = 0
+              hourlyTokens[h] += perHour
+            }
+            todayTotal += sessionTokens
           }
         }
 
@@ -198,82 +220,17 @@ export default {
         that.stats.totalTokens = allTokens
         that.stats.inputTokens = totalTokens.input
         that.stats.outputTokens = totalTokens.output
+        that.todayTokens = todayTotal
+
+        that.buildHourlyChart(hourlyTokens)
 
         var models = []
         for (var key in modelUsage) models.push({ name: key, tokens: modelUsage[key] })
         models.sort(function (a, b) { return b.tokens - a.tokens })
         that.modelList = models.slice(0, 5)
-
-        if (todaySessionIds.length === 0) {
-          that.todayTokens = 0
-          that.hourlyData = []
-          that.hourLabels = []
-          return
-        }
-
-        that.loadHourlyStats(baseUrl, todaySessionIds, todayStart)
       },
       fail: function () {}
     })
-  },
-
-  loadHourlyStats(baseUrl, sessionIds, todayStart) {
-    var that = this
-    var hourlyTokens = {}
-    var todayTotal = 0
-    var fetched = 0
-    var total = sessionIds.length
-
-    for (var i = 0; i < sessionIds.length; i++) {
-      (function (sessionId) {
-        fetch.fetch({
-          url: baseUrl + '/session/' + sessionId + '/message?limit=20',
-          method: 'GET',
-          timeout: 15000,
-          success: function (data) {
-            var json = data.data
-            if ('string' == typeof json) {
-              try { json = JSON.parse(json) } catch (e) { json = [] }
-            }
-            if (!Array.isArray(json)) {
-              if (json && json.data && Array.isArray(json.data)) json = json.data
-              else json = []
-            }
-
-            for (var j = 0; j < json.length; j++) {
-              var msg = json[j]
-              var info = msg.info || {}
-              var time = info.time || {}
-              var tokens = info.tokens || {}
-              var ts = time.created || time.completed || 0
-              if (ts >= todayStart) {
-                var d = new Date(ts)
-                var h = d.getHours()
-                var t = (tokens.input || 0) + (tokens.output || 0)
-                if (t > 0) {
-                  if (!hourlyTokens[h]) hourlyTokens[h] = 0
-                  hourlyTokens[h] += t
-                  todayTotal += t
-                }
-              }
-            }
-
-            fetched++
-            if (fetched >= total) {
-              that.todayTokens = todayTotal
-              that.buildHourlyChart(hourlyTokens)
-            }
-          },
-          fail: function () {
-            fetched++
-            if (fetched >= total) {
-              that.todayTokens = todayTotal
-              that.buildHourlyChart(hourlyTokens)
-            }
-          }
-        })
-      })(sessionIds[i])
-    }
   },
 
   buildHourlyChart(hourlyTokens) {
