@@ -209,7 +209,7 @@
           <div if="{{(lang === 'cn' || lang === 'jp') && !numFlag}}" style="margin-left: 6px;flex: 1;height: 60px;background-color:#262626;border-color: #333333; border-width: 3px; border-radius: 100px;flex-direction: row;align-items:center">
             <scroll id="cvalWaiting" scroll-x="{{true}}" style="position:absolute;width: 85%;height: 42px;">
               <div static style="position: absolute;left: 0px;height: 42px;padding-left:20px;padding-right:20px">
-                <text class="calbtn02" style="padding-right:10px" @click="pushCval" show="{{lang==='en'}}">{{cval}}</text>
+                <text class="calbtn02" style="padding-right:10px" @click="pushCval" if="{{lang==='en'}}">{{cval}}</text>
                 <text for="{{resultListShort}}" class="calbtn02" style="padding-right:10px" @click="onRsSelect($item)">{{$item}}</text>
               </div>
             </scroll>
