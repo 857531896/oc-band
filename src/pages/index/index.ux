@@ -1183,7 +1183,7 @@ export default {
   right: 0;
   flex-direction: row;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 12px;
   background-color: #1a1a1a;
   border-top-width: 1px;
   border-top-style: solid;
@@ -1193,26 +1193,28 @@ export default {
 
 .kb-close {
   color: #ff5252;
-  font-size: 20px;
-  padding: 8px 12px;
+  font-size: 26px;
+  padding: 10px 14px;
   margin-right: 8px;
 }
 
 .kb-preview {
   flex: 1;
-  color: #cccccc;
-  font-size: 16px;
-  padding: 10px 12px;
+  color: #ffffff;
+  font-size: 22px;
+  padding: 14px 14px;
   background-color: #222222;
-  border-radius: 6px;
+  border-radius: 8px;
+  min-height: 52px;
 }
 
 .kb-send {
   color: #000000;
-  font-size: 14px;
-  padding: 10px 20px;
+  font-size: 20px;
+  font-weight: bold;
+  padding: 14px 24px;
   background-color: #00e676;
-  border-radius: 6px;
+  border-radius: 8px;
   margin-left: 8px;
 }
 </style>
