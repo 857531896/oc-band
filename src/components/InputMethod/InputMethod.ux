@@ -210,7 +210,7 @@
             <scroll id="cvalWaiting" scroll-x="{{true}}" style="position:absolute;width: 85%;height: 42px;">
               <div static style="position: absolute;left: 0px;height: 42px;padding-left:20px;padding-right:20px">
                 <text class="calbtn02" style="padding-right:10px" @click="pushCval" show="{{lang==='en'}}">{{cval}}</text>
-                <text for="{{cvalList}}" show="{{resultList.length > $idx}}" class="calbtn02" style="padding-right:10px" @click="onRsSelect(resultList[$idx])">{{resultList[$idx]}}</text>
+                <text for="{{resultListShort}}" class="calbtn02" style="padding-right:10px" @click="onRsSelect($item)">{{$item}}</text>
               </div>
             </scroll>
             <img if="{{resultList.length > 0}}" style="position:absolute;right: 8px; width: 60px;height: 40px;" src="./assets/horizontal/down2.png" @click="onBtnClick('down')" />
@@ -357,6 +357,7 @@ export default {
   data: {
     cval: "",
     resultList: [],
+    resultListShort: [],
     resultList2: [],
     waitingList: [],
     waitingIndex: -1,
@@ -567,6 +568,7 @@ export default {
     }
     if (!(this.cval + watingStr) || (this.lang !== "cn" && this.lang !== "jp")) {
       this.resultList = [];
+      this.resultListShort = [];
       this.setResultListAll();
       return;
     }
@@ -590,6 +592,7 @@ export default {
     const that = this;
     doSearchDic(val, that.lang, function (data) {
       that.resultList = data;
+      that.resultListShort = data.slice(0, parseInt(that.maxlength));
       that.setResultListAll();
     });
   },
