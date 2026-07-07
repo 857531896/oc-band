@@ -27,11 +27,9 @@
     </div>
 
     <div class="msg-card">
-      <list class="msg-list">
-        <list-item type="m" for="{{ messageLines }}">
-          <text class="{{isThinking ? 'msg-text msg-thinking' : 'msg-text'}}" style="font-size: {{fsMsg}}px;">{{ $item }}</text>
-        </list-item>
-      </list>
+      <scroll class="msg-scroll" scroll-y="true">
+        <text class="{{isThinking ? 'msg-text msg-thinking' : 'msg-text'}}" style="font-size: {{fsMsg}}px;">{{ latestMessage }}</text>
+      </scroll>
       <text class="msg-done" if="{{ showDoneTip }}">✓ 回复完成</text>
     </div>
 
@@ -121,20 +119,6 @@ export default {
   },
 
   computed: {
-    messageLines() {
-      var msg = this.latestMessage || ''
-      if (msg.indexOf('\n') >= 0) {
-        return msg.split('\n')
-      }
-      var lines = []
-      var maxLen = 40
-      var i = 0
-      while (i < msg.length) {
-        lines.push(msg.substring(i, i + maxLen))
-        i += maxLen
-      }
-      return lines.length > 0 ? lines : ['']
-    },
     serverBase() {
       return this.serverUrl || ('http://' + DEFAULT_SERVER_HOST + ':' + SERVER_PORT);
     },
@@ -966,6 +950,11 @@ export default {
   border-left-color: #00e676;
   border-left-style: solid;
   height: 250px;
+}
+
+.msg-scroll {
+  height: 210px;
+  flex-direction: column;
 }
 
 .msg-list {
