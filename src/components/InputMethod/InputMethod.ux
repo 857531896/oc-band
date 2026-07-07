@@ -431,10 +431,13 @@ export default {
   onRsSelect(txt) {
     this.onVibrate();
     this.cval = "";
-    this.addAllTxt(txt);
     this.clearWaiting();
     this.resetReslutList();
     this.downFlag = "";
+    var that = this;
+    setTimeout(function() {
+      that.addAllTxt(txt);
+    }, 0);
   },
   onBtnClick(sign) {
     this.onVibrate();
