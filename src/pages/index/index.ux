@@ -774,6 +774,7 @@ export default {
       this.debug = '无会话';
       return;
     }
+    this.showKeyboardPanel = false;
     this.debug = '发送: ' + text;
     fetch.fetch({
       url: this.serverBase + '/session/' + sessionId + '/message',
@@ -783,14 +784,12 @@ export default {
       success: () => {
         this.debug = '✓ 已发送: ' + text;
         this.keyboardInput = '';
-        this.showKeyboardPanel = false;
         this.isThinking = true;
         this.latestMessage = '正在思考中...';
         this.activatePoll();
       },
       fail: () => {
         this.debug = '✗ 发送失败';
-        this.showKeyboardPanel = false;
       }
     });
   }
